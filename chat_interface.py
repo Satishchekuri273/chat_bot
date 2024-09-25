@@ -4,11 +4,13 @@ from langchain_groq import ChatGroq
 from langchain.output_parsers import PydanticOutputParser
 from langchain_core.exceptions import OutputParserException
 from langchain_core.prompts import PromptTemplate
-from langchain_core.pydantic_v1 import BaseModel, Field, validator
+#from langchain_core.pydantic_v1 import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator
 from typing import Literal, List
 import psycopg2
 from urllib.parse import urlparse
 from psycopg2 import sql
+import os
 
 # Initialize the ChatGroq model with specific parameters
 chat_model = ChatGroq(temperature=0, groq_api_key="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", model_name="llama3-groq-70b-8192-tool-use-preview")
