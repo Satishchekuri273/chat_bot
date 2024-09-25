@@ -5,4 +5,4 @@ psycopg2==2.9.9
 pandas==1.5.3
 langchain_groq==0.2.0
 langchain_core==0.3.5
-typing==3.10.0.0
+#typing==3.10.0.0
