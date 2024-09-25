@@ -17,15 +17,8 @@ chat_model = ChatGroq(temperature=0, groq_api_key="gsk_SBNfAxZOz5fHP3U0ERKyWGdyb
 st.title('Chat with us')
 
 def connect():
-    """Connect to the PostgreSQL database using the provided connection string."""
-    url = "postgresql://postgre:w75OQFSRMPDv2SMrjEsWR8XoLc5d62rL@dpg-co5u6lsf7o1s73a7ql50-a.oregon-postgres.render.com/qa_y9pi"
-    parsed_url = urlparse(url)
-    dbname = parsed_url.path[1:]  # Remove the leading slash
-    user = parsed_url.username
-    password = parsed_url.password
-    host = parsed_url.hostname
-    port = parsed_url.port if parsed_url.port else 5432  # Use default port if none specified
-    return psycopg2.connect(dbname=dbname, user=user, password=password, host=host, port=port)
+    url = os.getenv("DATABASE_URL")
+    
 
 def fetch_market_trends(market: str, data_type: str):
     """Fetch the specified data type (e.g., 'Market Trends', 'Market Drivers') for the given market from the PostgreSQL database."""
