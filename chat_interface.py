@@ -18,8 +18,21 @@ chat_model = ChatGroq(temperature=0, groq_api_key="gsk_SBNfAxZOz5fHP3U0ERKyWGdyb
 # Streamlit App Title
 st.title('Chat with us')
 
+#def connect():
+    #url = os.getenv("DATABASE_URL")
+
 def connect():
     url = os.getenv("DATABASE_URL")
+    parsed_url = urlparse(url)  # Parse the URL
+    conn = psycopg2.connect(  # Create a connection object
+        database=parsed_url.path[1:],  # Extract the database name
+        user=parsed_url.username,  # Extract username
+        password=parsed_url.password,  # Extract password
+        host=parsed_url.hostname,  # Extract host
+        port=parsed_url.port  # Extract port
+    )
+    return conn  # This returns the connection object
+
     
 
 def fetch_market_trends(market: str, data_type: str):
