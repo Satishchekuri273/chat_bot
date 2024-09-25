@@ -5,3 +5,4 @@ psycopg2-binary
 pandas
 langchain_groq
 langchain_core
+pydantic
