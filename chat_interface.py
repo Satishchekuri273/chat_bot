@@ -15,6 +15,10 @@ import os
 # Initialize the ChatGroq model with specific parameters
 chat_model = ChatGroq(temperature=0, groq_api_key="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", model_name="llama3-groq-70b-8192-tool-use-preview")
 
+# Define chat history session state
+if 'chat_history' not in st.session_state:
+    st.session_state['chat_history'] = []  # Initialize chat history
+
 # Streamlit App Title
 st.title('Chat with us')
 
@@ -45,24 +49,35 @@ def fetch_market_trends(market: str, data_type: str):
         # Capitalize the first letter of each word in data_type (title case)
         formatted_data_type = data_type.title()  # 'market trends' becomes 'Market Trends'
         
-        # Prepare the SQL query to fetch the relevant data_type column for the specified market
-        query = sql.SQL("SELECT DISTINCT {data_type} FROM market_data WHERE LOWER(segment) LIKE %s").format(
+        # First, try to find an exact match for the market name
+        query_exact = sql.SQL("SELECT DISTINCT {data_type} FROM market_data WHERE LOWER(segment) = LOWER(%s)").format(
             data_type=sql.Identifier(formatted_data_type)
         )
         
-        # Execute the query with the market parameter in lowercase
-        cur.execute(query, (f'%{market.lower()}%',))
+        cur.execute(query_exact, (market.lower(),))
+        exact_results = cur.fetchall()
         
-        # Fetch all results
-        results = cur.fetchall()
+        if exact_results:
+            # If exact match found, return the results
+            cur.close()
+            conn.close()
+            return exact_results
+        
+        # If no exact match, try a partial match with LIMIT 1
+        query_partial = sql.SQL("SELECT DISTINCT {data_type} FROM market_data WHERE LOWER(segment) LIKE %s LIMIT 1").format(
+            data_type=sql.Identifier(formatted_data_type)
+        )
+        
+        cur.execute(query_partial, (f'%{market.lower()}%',))
+        partial_results = cur.fetchall()
         
         # Close the connection
         cur.close()
         conn.close()
         
-        # Return the results or a message if no data is found
-        if results:
-            return results
+        # Return partial results or a message if no data is found
+        if partial_results:
+            return partial_results
         else:
             return f"No data found for {data_type} in market {market}."
     
@@ -162,69 +177,92 @@ def process_user_query(user_query: str):
     try:
         moderation_result = moderation_chain.invoke(user_query)
     except OutputParserException as e:
-        st.error(f"Error during query moderation: {str(e)}")
+        st.session_state['chat_history'].append({'role': 'system', 'message': f"Error during query moderation: {str(e)}"})
         return
     
     if moderation_result.relevance == 1:
-        # Handle relevant query with extraction chain
         try:
             extracted_data = extraction_chain.invoke({"query": user_query})
-            
             for market_query in extracted_data.queries:
                 market_name = market_query.market_name
                 geography = market_query.geography
                 data_type = market_query.data_type
                 
-                st.write(f"Market: {market_name}, Geography: {geography}, Data Type: {data_type}")
-                
                 # Fetch market trends based on the extracted market name
                 market_trends = fetch_market_trends(market_name, data_type)
                 
-                st.write("\nWe have something related to your query:")
-                
                 if isinstance(market_trends, list):
-                    for trend in market_trends:
-                        st.write(f"- {trend[0]}")  # Assuming "Market Trends" is in the first column
+                    trends = "\n".join(f"- {trend[0]}" for trend in market_trends)
+                    st.session_state['chat_history'].append({
+                        'role': 'assistant',
+                        'message': f"Market: {market_name}, Geography: {geography}, Data Type: {data_type}\n{trends}"
+                    })
                 else:
-                    st.write(market_trends)  # Print any error or "no data found" message
-                
+                    st.session_state['chat_history'].append({
+                        'role': 'assistant',
+                        'message': market_trends
+                    })
         except OutputParserException as e:
-            st.error(f"Error during market query extraction: {str(e)}")
+            st.session_state['chat_history'].append({'role': 'system', 'message': f"Error during market query extraction: {str(e)}"})
     
     else:
-        # Handle non-relevant query with non-relevant query chain
         try:
             non_relevant_result = non_relevant_chain.invoke({"query": user_query})
-            non_relevant_market = non_relevant_result.market  # Get the market from the response
-
-            # Provide conversational response using ChatGroq
+            non_relevant_market = non_relevant_result.market
+            # Provide a conversational response to the user's query using ChatGroq
             conversational_template = """\
-            You are a friendly assistant. Respond briefly and informatively to the user query: "{query}"."""
+                You are a friendly assistant. Respond briefly and informatively to the user query: "{query}"."""
             conversational_prompt_template = ChatPromptTemplate.from_template(conversational_template)
             conversational_messages = conversational_prompt_template.format_messages(query=user_query)
-            
-            conversational_response = chat_model(conversational_messages)
-            st.write(conversational_response.content)
-            
-            # Display the most relevant market or industry
-            st.write(f"The most relevant market or industry: {non_relevant_market}")
-            
-            # Fetch market trends for the closest relevant market
+    
+            try:
+                conversational_response = chat_model(conversational_messages)
+                st.session_state['chat_history'].append({
+                    'role': 'assistant',
+                    'message': conversational_response.content
+                })
+            except Exception as e:
+                st.session_state['chat_history'].append({
+                    'role': 'system',
+                    'message': f"Error generating conversational response: {str(e)}"
+                })
+            st.session_state['chat_history'].append({
+                'role': 'assistant',
+                'message': f"The most relevant market or industry: {non_relevant_market}"
+            })
             market_trends = fetch_market_trends(non_relevant_market, "Market Trends")
             
-            st.write("\nWe have something related to your query:")
-            
             if isinstance(market_trends, list):
-                for trend in market_trends:
-                    st.write(f"- {trend[0]}")  # Assuming "Market Trends" is in the first column
+                trends = "\n".join(f"- {trend[0]}" for trend in market_trends)
+                st.session_state['chat_history'].append({'role': 'assistant', 'message': trends})
             else:
-                st.write(market_trends)  # Print any error or "no data found" message
+                st.session_state['chat_history'].append({'role': 'assistant', 'message': market_trends})
         
         except OutputParserException as e:
-            st.error(f"Error during non-relevant query processing: {str(e)}")
+            st.session_state['chat_history'].append({'role': 'system', 'message': f"Error during non-relevant query processing: {str(e)}"})
+    
+    
+
+# Display chat history
+def display_chat():
+    """Display chat history in a user-friendly format."""
+    for chat in st.session_state['chat_history']:
+        if chat['role'] == 'user':
+            st.markdown(f"**You:** {chat['message']}")
+        elif chat['role'] == 'assistant':
+            st.markdown(f"**Assistant:** {chat['message']}")
+        else:
+            st.markdown(f"**System:** {chat['message']}")
 
 
-# Streamlit app to process user queries
-user_input = st.text_input("Enter your query:")
+# Input field for user query
+user_input = st.text_input("Ask me something:")
+
+# Submit button
 if st.button("Submit"):
-    process_user_query(user_input)
+    if user_input:
+        st.session_state['chat_history'].append({'role': 'user', 'message': user_input})
+        process_user_query(user_input)
+
+# Display the chat history
+display_chat()
