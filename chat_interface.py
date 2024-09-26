@@ -135,9 +135,7 @@ def setup_non_relevant_query_chain() -> ChatPromptTemplate:
     across various industries. For the user query "{query}" - Understand the user's query and analyze its content, then identify the 
     most relevant market or industry that aligns with the context of the query for accurate information retrieval from the GMM database.
     Ensure you output ONLY the market or industry name in the following JSON format:
-    {{
-      "market": "name_of_market_or_industry"
-    }}
+    {{"market": "name_of_market_or_industry"}}
     Do not provide any additional information or explanations."""
     
     non_relevant_query_parser = PydanticOutputParser(pydantic_object=MarketOrIndustry)
@@ -180,7 +178,7 @@ def process_user_query(user_query: str):
                 st.write(f"Market: {market_name}, Geography: {geography}, Data Type: {data_type}")
                 
                 # Fetch market trends based on the extracted market name
-                market_trends = fetch_market_trends(market_name,data_type)
+                market_trends = fetch_market_trends(market_name, data_type)
                 
                 st.write("\nWe have something related to your query:")
                 
@@ -197,25 +195,31 @@ def process_user_query(user_query: str):
         # Handle non-relevant query with non-relevant query chain
         try:
             non_relevant_result = non_relevant_chain.invoke({"query": user_query})
-            
-            if isinstance(non_relevant_result, MarketOrIndustry):
-                # Fetch and display the closest relevant market or industry
-                st.write(f"The most relevant market or industry: {non_relevant_result.market}")
-                
-                # Fetch market trends for the closest relevant market
-                market_name = non_relevant_result.market
-                market_trends = fetch_market_trends(market_name,"Market Trends")
-                
-                st.write("\nWe have something related to your query:")
-                
-                if isinstance(market_trends, list):
-                    for trend in market_trends:
-                        st.write(f"- {trend[0]}")  # Assuming "Market Trends" is in the first column
-                else:
-                    st.write(market_trends)  # Print any error or "no data found" message
-            else:
-                st.write("No relevant market found.")
+            non_relevant_market = non_relevant_result.market  # Get the market from the response
 
+            # Provide conversational response using ChatGroq
+            conversational_template = """\
+            You are a friendly assistant. Respond briefly and informatively to the user query: "{query}"."""
+            conversational_prompt_template = ChatPromptTemplate.from_template(conversational_template)
+            conversational_messages = conversational_prompt_template.format_messages(query=user_query)
+            
+            conversational_response = chat_model(conversational_messages)
+            st.write(conversational_response.content)
+            
+            # Display the most relevant market or industry
+            st.write(f"The most relevant market or industry: {non_relevant_market}")
+            
+            # Fetch market trends for the closest relevant market
+            market_trends = fetch_market_trends(non_relevant_market, "Market Trends")
+            
+            st.write("\nWe have something related to your query:")
+            
+            if isinstance(market_trends, list):
+                for trend in market_trends:
+                    st.write(f"- {trend[0]}")  # Assuming "Market Trends" is in the first column
+            else:
+                st.write(market_trends)  # Print any error or "no data found" message
+        
         except OutputParserException as e:
             st.error(f"Error during non-relevant query processing: {str(e)}")
 
