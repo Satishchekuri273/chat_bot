@@ -49,37 +49,45 @@ def fetch_market_trends(market: str, data_type: str):
         # Capitalize the first letter of each word in data_type (title case)
         formatted_data_type = data_type.title()  # 'market trends' becomes 'Market Trends'
         
-        # First, try to find an exact match for the market name
-        query_exact = sql.SQL("SELECT DISTINCT {data_type} FROM market_data WHERE LOWER(segment) = LOWER(%s)").format(
-            data_type=sql.Identifier(formatted_data_type)
-        )
+        # Function to fetch results for a given market name using LIKE
+        def fetch_results(market_name):
+            query = sql.SQL("SELECT DISTINCT {data_type} FROM market_data WHERE LOWER(segment) LIKE LOWER(%s) LIMIT 1").format(
+                data_type=sql.Identifier(formatted_data_type)
+            )
+            cur.execute(query, (f'%{market_name}%',))  # Using LIKE with wildcards
+            return cur.fetchall()
         
-        cur.execute(query_exact, (market.lower(),))
-        exact_results = cur.fetchall()
+        # Start by checking the full market name
+        results = fetch_results(market)
         
-        if exact_results:
-            # If exact match found, return the results
+        if results:
             cur.close()
             conn.close()
-            return exact_results
+            return results
         
-        # If no exact match, try a partial match with LIMIT 1
-        query_partial = sql.SQL("SELECT DISTINCT {data_type} FROM market_data WHERE LOWER(segment) LIKE %s LIMIT 1").format(
-            data_type=sql.Identifier(formatted_data_type)
-        )
+        # Split the market string into words for iterative checking
+        market_words = market.split()
         
-        cur.execute(query_partial, (f'%{market.lower()}%',))
-        partial_results = cur.fetchall()
+        # Iteratively remove the last word and check for matches
+        while market_words:  # Continue until all words are removed
+            # Join the remaining words to form the new market name
+            new_market = ' '.join(market_words)
+            
+            # Check for a LIKE match for the shortened market name
+            results = fetch_results(new_market)
+            
+            if results:
+                cur.close()
+                conn.close()
+                return results
+            
+            # Remove the last word for the next iteration
+            market_words.pop()
         
-        # Close the connection
+        # Close the connection and return not found message if no match found
         cur.close()
         conn.close()
-        
-        # Return partial results or a message if no data is found
-        if partial_results:
-            return partial_results
-        else:
-            return f"No data found for {data_type} in market {market}."
+        return f"No data found for {data_type} in market '{market}'."
     
     except Exception as e:
         return f"Error fetching {data_type} for {market}: {str(e)}"
