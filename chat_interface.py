@@ -11,9 +11,12 @@ import psycopg2
 from urllib.parse import urlparse
 from psycopg2 import sql
 import os
+import openai
 
 # Initialize the ChatGroq model with specific parameters
 chat_model = ChatGroq(temperature=0, groq_api_key="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", model_name="llama3-groq-70b-8192-tool-use-preview")
+
+openai.api_key = os.getenv("OPENAI_API")
 
 # Define chat history session state
 if 'chat_history' not in st.session_state:
@@ -37,9 +40,58 @@ def connect():
     )
     return conn  # This returns the connection object
 
+def generate_analysis(data):
+    prompt_template = """
+        Use this relevant information and frame a response to the user query.
+        relevant information  -  {data}
+                """
+
     
 
-def fetch_market_trends(market: str, data_type: str):
+    prompt = prompt_template.format(data=data)
+
+    # Generate text using OpenAI API
+    response = openai.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "You are a knowledgeable market analyst."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=250,  # Adjust as needed
+        temperature=0.7,
+    )
+    
+    # Extract and return the generated text
+    generated_text = response.choices[0].message.content
+    return generated_text
+
+def generate_analysis_text(data):
+    prompt_template = """
+        You are an experienced business analyst skilled in summarizing complex research findings into clear, concise abstracts. Generate a summary of the content from a detailed business research report. The output should be succinct with bullet points and should distill the essence of the content, highlighting key insights. All start each point with capital letter only, this is very important:
+
+        Content: {data}
+                """
+
+    
+
+    prompt = prompt_template.format(data=data)
+
+    # Generate text using OpenAI API
+    response = openai.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "You are a knowledgeable market analyst."},
+            {"role": "user", "content": prompt}
+        ],
+        #max_tokens=250,  # Adjust as needed
+        temperature=0.7,
+    )
+    
+    # Extract and return the generated text
+    generated_text = response.choices[0].message.content
+    return generated_text
+
+def fetch_market_trends(market: str, data_type: str, geography):
     """Fetch the specified data type (e.g., 'Market Trends', 'Market Drivers') for the given market from the PostgreSQL database."""
     try:
         # Establish the database connection
@@ -48,6 +100,30 @@ def fetch_market_trends(market: str, data_type: str):
         
         # Capitalize the first letter of each word in data_type (title case)
         formatted_data_type = data_type.title()  # 'market trends' becomes 'Market Trends'
+
+        if formatted_data_type == 'Market Size':
+            query = f"""
+            SELECT y2013,y2014,y2015,y2016,y2017,y2018,y2019,y2020,y2021,
+            y2022,y2023,y2024,y2025,y2026,y2027,y2028,y2029,y2030,y2031,y2032,y2033
+            FROM public.market_data 
+            WHERE LOWER(segment) = LOWER(%s) AND LOWER(geography) = LOWER(%s)
+            """
+            cur.execute(query,(market,geography))
+            row = cur.fetchone()
+            if row:
+                print(f"Query Result: {row}")
+                formatted_values = ["{:.2f}".format(float(value)) if value is not None else None for value in row]
+                # Capitalize the first letter of each word in selected_country and selected_market
+                capitalized_country = geography.title()
+                capitalized_market = market.title()
+                row_values = [capitalized_country, capitalized_market, "Sales", "Fixed USD", "Billion"] + formatted_values
+                headers = ["Geography", "Segment", "Type", "Value", "Units","y2013","y2014","y2015","y2016","y2017","y2018","y2019","y2020","y2021","y2022","y2023","y2024","y2025","y2026","y2027","y2028","y2029","y2030","y2031","y2032","y2033"] 
+                data = [headers, row_values]
+                gd = generate_analysis(data)
+                return gd
+            else:
+                print("No data available for the query")
+                return None, "No data available"
         
         # Function to fetch results for a given market name using LIKE
         def fetch_results(market_name):
@@ -55,8 +131,9 @@ def fetch_market_trends(market: str, data_type: str):
                 data_type=sql.Identifier(formatted_data_type)
             )
             cur.execute(query, (f'%{market_name}%',))  # Using LIKE with wildcards
-            return cur.fetchall()
-        
+            c = cur.fetchall()
+            content = generate_analysis_text(c)
+            return content
         # Start by checking the full market name
         results = fetch_results(market)
         
@@ -197,7 +274,7 @@ def process_user_query(user_query: str):
                 data_type = market_query.data_type
                 
                 # Fetch market trends based on the extracted market name
-                market_trends = fetch_market_trends(market_name, data_type)
+                market_trends = fetch_market_trends(market_name, data_type, geography)
                 
                 if isinstance(market_trends, list):
                     trends = "\n".join(f"- {trend[0]}" for trend in market_trends)
@@ -238,7 +315,7 @@ def process_user_query(user_query: str):
                 'role': 'assistant',
                 'message': f"The most relevant market or industry: {non_relevant_market}"
             })
-            market_trends = fetch_market_trends(non_relevant_market, "Market Trends")
+            market_trends = fetch_market_trends(non_relevant_market, "Market Trends", "Global")
             
             if isinstance(market_trends, list):
                 trends = "\n".join(f"- {trend[0]}" for trend in market_trends)
