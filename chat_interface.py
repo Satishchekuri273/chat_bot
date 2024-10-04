@@ -106,9 +106,9 @@ def fetch_market_trends(market: str, data_type: str, geography):
             SELECT y2013,y2014,y2015,y2016,y2017,y2018,y2019,y2020,y2021,
             y2022,y2023,y2024,y2025,y2026,y2027,y2028,y2029,y2030,y2031,y2032,y2033
             FROM public.market_data 
-            WHERE LOWER(segment) = LOWER(%s) AND LOWER(geography) = LOWER(%s)
+            WHERE LOWER(segment) like LOWER(%s) AND LOWER(geography) = LOWER(%s)
             """
-            cur.execute(query,(market,geography))
+            cur.execute(query,(f'%{market}%',geography))
             row = cur.fetchone()
             if row:
                 print(f"Query Result: {row}")
